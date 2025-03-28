@@ -28,6 +28,7 @@ from ramalama.quadlet import Quadlet
 from ramalama.version import version
 
 MODEL_TYPES = ["file", "https", "http", "oci", "huggingface", "hf", "ollama"]
+USE_RAMALAMA_WRAPPER = False
 
 
 file_not_found = """\
@@ -399,7 +400,17 @@ class Model(ModelBase):
 
     def exec_model_in_container(self, model_path, cmd_args, args):
         if not args.container:
+            if USE_RAMALAMA_WRAPPER:
+                for dir in ["", "/opt/homebrew/", "/usr/local/", "/usr/"]:
+                    if os.path.exists(f"{dir}libexec/ramalama/{cmd_args[0]}"):
+                        cmd_args[0] = f"{dir}libexec/ramalama/{cmd_args[0]}"
+                        break
+
             return False
+
+        if USE_RAMALAMA_WRAPPER:
+            cmd_args[0] = f"/usr/libexec/ramalama/{cmd_args[0]}"
+
         conman_args = self.setup_container(args)
         if len(conman_args) == 0:
             return False
@@ -530,7 +541,12 @@ class Model(ModelBase):
         if EMOJI and "LLAMA_PROMPT_PREFIX" not in os.environ:
             os.environ["LLAMA_PROMPT_PREFIX"] = "🦙 > "
 
-        exec_args = ["llama-run", "-c", f"{args.context}", "--temp", f"{args.temp}"]
+        if USE_RAMALAMA_WRAPPER:
+            exec_args = ["ramalama-run-core"]
+        else:
+            exec_args = ["llama-run"]
+
+        exec_args += ["-c", f"{args.context}", "--temp", f"{args.temp}"]
         exec_args += args.runtime_args
 
         if args.seed:
@@ -595,7 +611,11 @@ class Model(ModelBase):
                 f"{args.context}",
             ] + args.runtime_args
         else:
-            exec_args = [
+            exec_args = []
+            if USE_RAMALAMA_WRAPPER:
+                exec_args += ["ramalama-serve-core"]
+
+            exec_args += [
                 "llama-server",
                 "--port",
                 args.port,
@@ -608,11 +628,12 @@ class Model(ModelBase):
                 "--temp",
                 f"{args.temp}",
             ] + args.runtime_args
+
             if chat_template_path != "":
-                exec_args.extend(["--chat-template-file", chat_template_path])
+                exec_args += ["--chat-template-file", chat_template_path]
 
             if args.debug:
-                exec_args.extend(["-v"])
+                exec_args += ["-v"]
 
         if args.seed:
             exec_args += ["--seed", args.seed]
